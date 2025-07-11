@@ -20,7 +20,7 @@ func main() {
 	r := gin.Default()
 
 	r.POST("/upload", upload)
-	r.Run()
+	r.Run(":46787")
 }
 
 func config() (Config, error) {
@@ -60,10 +60,18 @@ func upload(c *gin.Context) {
 	}
 	defer file.Close()
 
-	dst := filepath.Join("../sharedPhotos", header.Filename)
+    exePath, err := os.Executable()
+    if err != nil {
+        log.Fatal("Can't find exe path:", err)
+    }
+    
+    folderPath := filepath.Dir(exePath) + "/../sharedPhotos"
+
+	dst := filepath.Join(folderPath, header.Filename)
 
 	out, err := os.Create(dst)
 	if err != nil {
+		log.Fatal("Can't Save File")
 		c.JSON(500, gin.H{"message": "Cant save file", "err": err})
 		return
 	}
