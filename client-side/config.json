@@ -1,0 +1,4 @@
+{
+    "serverURL": "http://localhost:8080",
+    "secret": "Bearer VerySecureToken"
+}
