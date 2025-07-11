@@ -17,108 +17,138 @@ import (
 )
 
 type Config struct {
-	ServerURL string `json:"serverUrl"`
-	Secret string `json:"secret"`
+	ServerURL   string `json:"serverUrl"`
+	Secret      string `json:"secret"`
+	WorkerCount int    `json:"workerCount"`
 }
 
-func config () (Config, error) {
+var config Config
+
+func (c *Config) initConfig() error {
 
 	exePath, _ := os.Executable()
 	configPath := filepath.Join(filepath.Dir(exePath), "config.json")
 	file, err := os.ReadFile(configPath)
 	if err != nil {
 		log.Fatal(err)
-		return Config{}, err
 	}
 
-	var config Config
-	if err := json.Unmarshal(file, &config); err != nil {
+	if err := json.Unmarshal(file, c); err != nil {
 		log.Fatal("Unable to parse config")
-		return Config{}, err
 	}
 
-	return config, nil
+	return nil
 }
 
 func watchFolder(folderPath string) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Fatal(err)
-		return
 	}
 	defer watcher.Close()
 
 	watcher.Add(folderPath)
 
-	config, err := config()
-	if err != nil {
-		log.Fatal(err)
-		return
+	uploadQueue := make(chan string)
+
+	for i := 0; i < config.WorkerCount; i++ {
+		go func() {
+			for filename := range uploadQueue {
+				uploadFile(filename)
+			}
+		}()
+	}
+
+	entries, _ := os.ReadDir(folderPath)
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".NEF") ||
+			strings.HasSuffix(e.Name(), ".jpg") ||
+			strings.HasSuffix(e.Name(), ".png") ||
+			strings.HasSuffix(e.Name(), ".img") {
+			go func(filename string) {
+				uploadQueue <- filepath.Join(folderPath, filename)
+			}(e.Name())
+		}
 	}
 
 	for {
-	    select {
-		case event := <- watcher.Events:
-		    if event.Op&fsnotify.Create == fsnotify.Create {
-			time.Sleep(2 * time.Second)
-			if strings.HasSuffix(event.Name, ".jpg") ||
-				strings.HasSuffix(event.Name, ".png") ||
-				strings.HasSuffix(event.Name, ".img") {
-					uploadFile(event.Name, config)
+		select {
+		case event := <-watcher.Events:
+			if event.Op&fsnotify.Create == fsnotify.Create {
+				if strings.HasSuffix(event.Name, ".jpg") ||
+					strings.HasSuffix(event.Name, ".JPG") ||
+					strings.HasSuffix(event.Name, ".NEF") ||
+					strings.HasSuffix(event.Name, ".img") {
+					go func(filename string) {
+						uploadQueue <- event.Name
+					}(event.Name)
 				}
-		}
-		case err := <- watcher.Errors:
+			}
+		case err := <-watcher.Errors:
 			log.Println("Error", err)
 		}
 	}
 }
 
-func uploadFile(path string, config Config) error {
+func uploadFile(path string) {
+	time.Sleep(time.Second * 1)
 	fmt.Printf("Uploading %s...\n", filepath.Base(path))
-    file, err := os.Open(path)
-    if err != nil {
-        return err
-    }
-    defer file.Close()
+	file, err := os.Open(path)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	defer file.Close()
 
-    var buf bytes.Buffer
-    writer := multipart.NewWriter(&buf)
-    
-    part, err := writer.CreateFormFile("photo", path)
-    if err != nil {
-        return err
-    }
-    
-    io.Copy(part, file)
-    writer.Close()
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
 
-    req, err := http.NewRequest("POST", config.ServerURL+"/upload", &buf)
-    if err != nil {
-		fmt.Printf("❌ Failed to upload %s: %v\n", filepath.Base(path), err)
-        return err
-    }
-    req.Header.Set("Content-Type", writer.FormDataContentType())
-    req.Header.Set("Authorization", config.Secret)
-    
-    client := &http.Client{}
-    resp, err := client.Do(req)
-    if err != nil {
-        return err
-    }
-    defer resp.Body.Close()
-    
+	part, err := writer.CreateFormFile("photo", path)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	io.Copy(part, file)
+	writer.Close()
+
+	req, err := http.NewRequest("POST", config.ServerURL+"/upload", &buf)
+	if err != nil {
+		log.Printf("❌ Failed to upload %s: %v\n", filepath.Base(path), err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", config.Secret)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.Status != "200 OK" {
+		log.Printf("❌ Failed to upload %s: [%v]\n", filepath.Base(path), resp.Status)
+		return
+	}
+
 	fmt.Printf("✅ Uploaded %s\n", filepath.Base(path))
-    return nil
 }
 
 func main() {
-    exePath, err := os.Executable()
-    if err != nil {
-        log.Fatal("Can't find exe path:", err)
-    }
-    
-    folderPath := filepath.Dir(exePath)
-    log.Printf("Watching folder: %s", folderPath)
-    
-    watchFolder(folderPath)
+	log.Println("     =====     ")
+	log.Println("Avery is the fairest of all the land. I'll be damned if she moves a photo by hand.")
+	log.Println("     =====     ")
+
+	config.initConfig()
+
+	exePath, err := os.Executable()
+	if err != nil {
+		log.Fatal("Can't find exe path:", err)
+	}
+
+	folderPath := filepath.Join(filepath.Dir(exePath), "..")
+
+	log.Printf("Watching folder: %s", folderPath)
+
+	watchFolder(folderPath)
 }
