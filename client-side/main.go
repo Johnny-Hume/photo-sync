@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -50,9 +51,12 @@ func watchFolder(folderPath string) {
 	watcher.Add(folderPath)
 
 	uploadQueue := make(chan string)
+	var wg sync.WaitGroup
 
 	for i := 0; i < config.WorkerCount; i++ {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			for filename := range uploadQueue {
 				uploadFile(filename)
 			}
@@ -65,29 +69,31 @@ func watchFolder(folderPath string) {
 			strings.HasSuffix(e.Name(), ".jpg") ||
 			strings.HasSuffix(e.Name(), ".png") ||
 			strings.HasSuffix(e.Name(), ".img") {
-			go func(filename string) {
-				uploadQueue <- filepath.Join(folderPath, filename)
-			}(e.Name())
+			uploadQueue <- filepath.Join(folderPath, e.Name())
 		}
 	}
 
-	for {
-		select {
-		case event := <-watcher.Events:
-			if event.Op&fsnotify.Create == fsnotify.Create {
-				if strings.HasSuffix(event.Name, ".jpg") ||
-					strings.HasSuffix(event.Name, ".JPG") ||
-					strings.HasSuffix(event.Name, ".NEF") ||
-					strings.HasSuffix(event.Name, ".img") {
-					go func(filename string) {
-						uploadQueue <- event.Name
-					}(event.Name)
-				}
-			}
-		case err := <-watcher.Errors:
-			log.Println("Error", err)
-		}
-	}
+	close(uploadQueue)
+	wg.Wait()
+	log.Println("Done! Did I mention you look beautiful today?")
+
+	// for {
+	// 	select {
+	// 	case event := <-watcher.Events:
+	// 		if event.Op&fsnotify.Create == fsnotify.Create {
+	// 			if strings.HasSuffix(event.Name, ".jpg") ||
+	// 				strings.HasSuffix(event.Name, ".JPG") ||
+	// 				strings.HasSuffix(event.Name, ".NEF") ||
+	// 				strings.HasSuffix(event.Name, ".img") {
+	// 				go func(filename string) {
+	// 					uploadQueue <- event.Name
+	// 				}(event.Name)
+	// 			}
+	// 		}
+	// 	case err := <-watcher.Errors:
+	// 		log.Println("Error", err)
+	// 	}
+	// }
 }
 
 func uploadFile(path string) {
