@@ -75,26 +75,9 @@ func watchFolder(folderPath string) {
 
 	close(uploadQueue)
 	wg.Wait()
-	log.Println("Done! Did I mention you look beautiful today?")
+	log.Println("Done!")
 
-	// for {
-	// 	select {
-	// 	case event := <-watcher.Events:
-	// 		if event.Op&fsnotify.Create == fsnotify.Create {
-	// 			if strings.HasSuffix(event.Name, ".jpg") ||
-	// 				strings.HasSuffix(event.Name, ".JPG") ||
-	// 				strings.HasSuffix(event.Name, ".NEF") ||
-	// 				strings.HasSuffix(event.Name, ".img") {
-	// 				go func(filename string) {
-	// 					uploadQueue <- event.Name
-	// 				}(event.Name)
-	// 			}
-	// 		}
-	// 	case err := <-watcher.Errors:
-	// 		log.Println("Error", err)
-	// 	}
-	// }
-}
+	}
 
 func uploadFile(path string) {
 	time.Sleep(time.Second * 1)
@@ -141,9 +124,6 @@ func uploadFile(path string) {
 }
 
 func main() {
-	log.Println("     =====     ")
-	log.Println("Avery is the fairest of all the land. I'll be damned if she moves a photo by hand.")
-	log.Println("     =====     ")
 
 	config.initConfig()
 
